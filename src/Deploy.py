@@ -1,46 +1,48 @@
 from web3 import Web3
-import json
+from Compile import Compile_Solidity
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
 
-# Load environment variables
-PRIVATE_KEY = os.getenv("ANVIL_PRIVATE_KEY")
-ACCOUNT = os.getenv("ANVIL_ACCOUNT")
-RPC_URL = os.getenv("LOCAL_PROVIDER")
-CHAIN_ID = int(os.getenv("CHAIN_ID"))
 
-# Connect to Anvil
-w3 = Web3(Web3.HTTPProvider(RPC_URL))
-account = w3.eth.account.from_key(PRIVATE_KEY)
+def deploy_contract(contract_file: str, contract_name: str,account: str, private_key: str,provider: str, chain_id: int) :
 
-# Load compiled contract
-with open("compiled_code.json", "r") as file:
-    compiled_sol = json.load(file)
+    compiled_sol = Compile_Solidity(contract_file)
 
-abi = compiled_sol["contracts"]["newContract.sol"]["newContract"]["abi"]
-bytecode = compiled_sol["contracts"]["newContract.sol"]["newContract"]["evm"]["bytecode"]["object"]
+    # Get the ABI and the Bytecode
+    abi = compiled_sol['contracts'][contract_file][contract_name]['abi']
+    byte_code = compiled_sol['contracts'][contract_file][contract_name]['evm']['bytecode']['object']
 
-# Deploy contract
-contract = w3.eth.contract(abi=abi, bytecode=bytecode)
-nonce = w3.eth.get_transaction_count(account.address)
 
-transaction = contract.constructor().build_transaction({
-    "from": account.address,
-    "gas": 6721975,
-    "gasPrice": w3.to_wei("20", "gwei"),
-    "nonce": nonce,
-    "chainId": CHAIN_ID
-})
+    connection = Web3(Web3.HTTPProvider(provider))
 
-signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
-txn_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
-txn_receipt = w3.eth.wait_for_transaction_receipt(txn_hash)
+    contract = connection.eth.contract(abi=abi, bytecode=byte_code)
+    nonce = connection.eth.get_transaction_count(account)
 
-contract_address = txn_receipt.contractAddress
-print(f"✅ Contract deployed at {contract_address}")
+    transaction = contract.constructor().build_transaction(
+        {
+            "chainId": chain_id,
+            "gasPrice": connection.eth.gas_price,
+            "from": account,
+            "nonce": nonce
 
-# Save contract address
-with open("contract_address.txt", "w") as file:
-    file.write(contract_address)
+        }
+    )
+
+    signed_txn = connection.eth.account.sign_transaction(transaction, private_key=private_key)
+
+    tx_hash = connection.eth.send_raw_transaction(signed_txn.raw_transaction)
+
+    tx_receipt = connection.eth.wait_for_transaction_receipt(tx_hash)
+
+    return (tx_receipt.contractAddress, abi)
+
+
+if __name__ == "__main__":
+    contract_file = "./newContract.sol"
+    account = os.getenv("ACCOUNT")
+    private_key = os.getenv("PRIVATE_KEY")
+    provider = os.getenv("ETHERSCAN_PROVIDER").format("holesky")
+    print(provider)
+    chain_id = 17000
+    contract_address, abi = deploy_contract(contract_file, "newContract",account, private_key,provider,chain_id)
+    print(f"Contract deployed at {contract_address}")

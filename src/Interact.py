@@ -1,46 +1,56 @@
 from web3 import Web3
-import json
+from Deploy import deploy_contract
 import os
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
+# Contract file and contract details
+contract_file = "./newContract.sol"
+contract_name = 'newContract'
+
 # Load environment variables
-PRIVATE_KEY = os.getenv("ANVIL_PRIVATE_KEY")
-RPC_URL = os.getenv("LOCAL_PROVIDER")
+account = os.getenv("ANVIL_ACCOUNT")
+private_key = os.getenv("ANVIL_PRIVATE_KEY")
+provider = os.getenv("LOCAL_PROVIDER")
+chain_id = 31337
 
-# Connect to Anvil
-w3 = Web3(Web3.HTTPProvider(RPC_URL))
-account = w3.eth.account.from_key(PRIVATE_KEY)
+# Connect to the provider (local node, e.g., Ganache)
+connection = Web3(Web3.HTTPProvider(provider))
 
-# Load contract ABI & Address
-with open("compiled_code.json", "r") as file:
-    compiled_sol = json.load(file)
+# Deploy the contract
+contract_address, abi = deploy_contract(contract_file, contract_name, account, private_key, provider, chain_id)
+print(f"Contract deployed at {contract_address}")
 
-with open("contract_address.txt", "r") as file:
-    contract_address = file.read().strip()
+# Interact with the deployed contract
+simple_storage = connection.eth.contract(address=contract_address, abi=abi)
 
-abi = compiled_sol["contracts"]["newContract.sol"]["newContract"]["abi"]
-contract = w3.eth.contract(address=contract_address, abi=abi)
+# Get the nonce for the transaction
+nonce = connection.eth.get_transaction_count(account)
 
-# View initial StudentId
-student_id = contract.functions.viewMyId().call()
-print(f"Initial StudentID: {student_id}")
+# Build the transaction to update the stored value
+print("Creating Transactions")
+transaction = simple_storage.functions.updateID(5341).build_transaction(
+    {
+        "chainId": chain_id,
+        "gasPrice": connection.eth.gas_price,
+        "from": account,
+        "nonce": nonce
+    }
+)
 
-# Update StudentId to 5341
-nonce = w3.eth.get_transaction_count(account.address)
-update_txn = contract.functions.updateID(5341).build_transaction({
-    "from": account.address,
-    "gas": 2000000,
-    "gasPrice": w3.to_wei("20", "gwei"),
-    "nonce": nonce,
-    "chainId": 31337
-})
+# Sign the transaction
+signed_txn = connection.eth.account.sign_transaction(transaction, private_key=private_key)
 
-signed_update_txn = w3.eth.account.sign_transaction(update_txn, PRIVATE_KEY)
-update_txn_hash = w3.eth.send_raw_transaction(signed_update_txn.raw_transaction)
-w3.eth.wait_for_transaction_receipt(update_txn_hash)
+# Send the transaction
+print("Updating stored Value")
+tx_hash = connection.eth.send_raw_transaction(signed_txn.raw_transaction)  # Fix here
 
-# View updated StudentId
-updated_value = contract.functions.viewMyId().call()
+# Wait for the transaction receipt to confirm that it was mined
+tx_receipt = connection.eth.wait_for_transaction_receipt(tx_hash)
+print("Updated successfully")
+
+# Call the view function to get the updated value
+updated_value = simple_storage.functions.viewMyId().call()
 print(f"Updated value is {updated_value}")
